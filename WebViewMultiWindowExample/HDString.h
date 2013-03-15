@@ -1,14 +1,16 @@
 //----------------------------------------------------------------------
 //
-//  HDViewController.h
+//  HDString.h
 //  WebViewMultiWindowExample
 //
 //  Copyright (c) 2013 Hessler Design. All rights reserved.
 //
 //----------------------------------------------------------------------
 
-#import <UIKit/UIKit.h>
+#import <Foundation/Foundation.h>
 
-@interface HDViewController : UIViewController <UIWebViewDelegate>
+@interface HDString : NSString
+
++ (NSString *) encodedString:(NSString *)string;
 
 @end
