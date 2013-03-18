@@ -12,21 +12,26 @@
 
 //
 // This is our JS we're going to inject into each web view. It looks a bit messy,
-// but in short, it overrides the window.open, window.close, and window.opener.focus
-// methods. It does this by creating an iframe and setting the iframe src attribute
-// to a custom URL scheme: "hdwebview://".
+// but in short, it overrides the window.open and window.close methods. It does
+// this by creating an iframe and setting the iframe src attribute to a custom
+// URL scheme: "hdwebview://".
 //
 // This custom URL scheme is followed by a method name we will catch in the
 // webView:shouldStartLoadWithRequest:navigationType method. Our method names are:
 //    - jswindowopenoverride
 //    - jswindowcloseoverride
-//    - jswindowopenerfocusoverride
+//
+// There is also logic in this JS block that loops through all anchor tags on
+// a given page, and finds any that have a target of "_blank", replacing the
+// blank target with an onclick event that fires a window.open method, passing
+// in the href attribute as the URL to open. And since we have overridden the
+// window.open method, this action will be caught as a new window open event.
 //
 // At this time, I haven't yet figured out how to get window-to-window communication
 // via JavaScript -- for example, having a child window call a method to its parent.
 // If anyone can figure out how to do that, please let me know!
 //
-static NSString * const kJSWindowPrototypeOverride = @"window.open = function (url, name, specs, replace) { var iframe = document.createElement('IFRAME'); iframe.setAttribute('src', 'hdwebview://jswindowopenoverride||' + url); iframe.setAttribute('frameborder', '0'); iframe.style.width = '1px'; iframe.style.height = '1px'; document.body.appendChild(iframe); document.body.removeChild(iframe); iframe = null; }; window.close = function () { var iframe = document.createElement('IFRAME'); iframe.setAttribute('src', 'hdwebview://jswindowcloseoverride'); iframe.setAttribute('frameborder', '0'); iframe.style.width = '1px'; iframe.style.height = '1px'; document.body.appendChild(iframe); document.body.removeChild(iframe); iframe = null; }; window.opener.focus = function () { var iframe = document.createElement('IFRAME'); iframe.setAttribute('src', 'hdwebview://jswindowopenerfocusoverride'); iframe.setAttribute('frameborder', '0'); iframe.style.width = '1px'; iframe.style.height = '1px'; document.body.appendChild(iframe); document.body.removeChild(iframe); iframe = null; };";
+static NSString * const kJSOverrides = @"(function () { 'use strict'; /*global document, window, setInterval, clearInterval */ window.open = function (url, name, specs, replace) { var iframe = document.createElement('IFRAME'); iframe.setAttribute('src', 'hdwebview://jswindowopenoverride||' + url); iframe.setAttribute('frameborder', '0'); iframe.style.width = '1px'; iframe.style.height = '1px'; document.body.appendChild(iframe); document.body.removeChild(iframe); iframe = null; }; window.close = function () { var iframe = document.createElement('IFRAME'); iframe.setAttribute('src', 'hdwebview://jswindowcloseoverride'); iframe.setAttribute('frameborder', '0'); iframe.style.width = '1px'; iframe.style.height = '1px'; document.body.appendChild(iframe); document.body.removeChild(iframe); iframe = null; }; window.hdMakeHandler = function (anchor) { return function () { window.open(anchor.getAttribute('href')); }; }; window.hdWebViewReadyInterval = setInterval(function () { if (document.readyState === 'complete') { var i, ab = document.getElementsByTagName('a'), abLength = ab.length; for (i = 0; i < abLength; i += 1) { if (ab[i].getAttribute('target') === '_blank') { ab[i].removeAttribute('target'); ab[i].onclick = window.hdMakeHandler(ab[i]); } } clearInterval(window.hdWebViewReadyInterval); } }, 10); }());";
 
 @interface HDViewController ()
 
@@ -111,9 +116,6 @@ static NSString * const kJSWindowPrototypeOverride = @"window.open = function (u
     webView.delegate = self;
     webView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
     
-    // Inject JS to override window prototype methods
-    __unused NSString *jsWindowRewrite = [webView stringByEvaluatingJavaScriptFromString:kJSWindowPrototypeOverride];
-    
     // Add to windows array and make active window
     [self.windows addObject:webView];
     self.activeWindow = webView;
@@ -183,9 +185,6 @@ static NSString * const kJSWindowPrototypeOverride = @"window.open = function (u
 {
     // Show the network activity indicator
     [UIApplication sharedApplication].networkActivityIndicatorVisible = YES;
-    
-    // Inject JS to override window prototype methods
-    __unused NSString *jsWindowRewrite = [webView stringByEvaluatingJavaScriptFromString:kJSWindowPrototypeOverride];
 }
 
 - (void) webViewDidFinishLoad:(UIWebView *)webView
@@ -195,7 +194,7 @@ static NSString * const kJSWindowPrototypeOverride = @"window.open = function (u
     [UIApplication sharedApplication].networkActivityIndicatorVisible = NO;
     
     // Inject JS to override window prototype methods
-    __unused NSString *jsWindowRewrite = [webView stringByEvaluatingJavaScriptFromString:kJSWindowPrototypeOverride];
+    __unused NSString *jsOverrides = [webView stringByEvaluatingJavaScriptFromString:kJSOverrides];
 }
 - (void) webView:(UIWebView *)webView didFailLoadWithError:(NSError *)error
 {
@@ -242,6 +241,7 @@ static NSString * const kJSWindowPrototypeOverride = @"window.open = function (u
         
         if (![self.activeWindow isEqual:[self.windows objectAtIndex:0]]) {
             // This web view can't go back, so we're closing the window and showing the underlying one.
+            NSLog(@"active web view can't go back, so we're closing it");
             [self closeActiveWebView];
         }
         
